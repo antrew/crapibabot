@@ -14,22 +14,22 @@
 int port_motor_left_pwm = 18;
 //
 //		# input 1 of the H-bridge
-int port_motor_left_backward = 24;
+int port_motor_left_forward = 24;
 //
 //		# input 2 of the H-bridge
-int port_motor_left_forward = 23;
+int port_motor_left_backward = 23;
 //
 //		# enable B of the H-bridge
 int port_motor_right_pwm = 13;
 //
 //		# input 3 of the H-bridge
-int port_motor_right_backward = 12;
+int port_motor_right_forward = 12;
 //
 //		# input 4 of the H-bridge
-int port_motor_right_forward = 25;
+int port_motor_right_backward = 25;
 //
 int port_encoder_left_a = 19;
 int port_encoder_left_b = 26;
 //
-//		port_encoder_right_a=17
-//		port_encoder_right_b=27
+int port_encoder_right_a=17;
+int port_encoder_right_b=27;

@@ -9,6 +9,8 @@ rsync -rtv \
 	--delete \
 	--exclude '*.pyc' \
 	--exclude 'override.ini' \
-	*.c \
+	*.cpp \
 	*.h \
-	pi@$PI_HOSTNAME:test_c/
+	*.sh \
+	Makefile \
+	pi@$PI_HOSTNAME:test_acc/

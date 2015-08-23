@@ -7,8 +7,10 @@ source deploy.settings
 
 rsync -rtv \
 	--delete \
+	--itemize-changes \
 	--exclude '*.pyc' \
 	--exclude 'override.ini' \
+	*.c \
 	*.cpp \
 	*.h \
 	*.sh \

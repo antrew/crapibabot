@@ -49,8 +49,8 @@ float last_error;
 int backward_value;
 int forward_value;
 
-float mapping_u[3] = {0, 2.5, 100};
-int mapping_pwm[3] = {0, 48, 100};
+float mapping_u[3] = {0, 1, 100};
+int mapping_pwm[3] = {0, 13, 100};
 
 int countCalibrationAngles = 0;
 float meanCalibrationAngle = 0.0;
@@ -216,9 +216,9 @@ void setupPIDControler() {
 	angle = 0;
 	K = 0.98;
 
-	Kp = 0.16;
-	Ki = 0.04;
-	Kd = 0.008;
+	Kp = 4.00;
+	Ki = 0.00;
+	Kd = 0.00;
 	set_point = 0.0;//will be properly set after calibration
 
 	integral_error = 0;

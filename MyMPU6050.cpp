@@ -61,8 +61,8 @@ void MyMPU6050::readSensor() {
 	gsy = gy * G_RATE;
 	gsz = gz * G_RATE;
 
-	printf("accelerometer: %5d, %5d, %5d ; %5d, %5d, %5d\n", ax, ay, az);
-	printf("gyroscope:     %5d, %5d, %5d ; %5f, %5f, %5f\n", gx, gy, gz, gsx,
-			gsy, gsz);
+//	printf("accelerometer: %5d, %5d, %5d ; %5d, %5d, %5d\n", ax, ay, az);
+//	printf("gyroscope:     %5d, %5d, %5d ; %5f, %5f, %5f\n", gx, gy, gz, gsx,
+//			gsy, gsz);
 
 }

@@ -9,6 +9,7 @@
 
 #include <math.h>
 #include <cstdio>
+#include <time.h>
 
 ComplementaryFilter::ComplementaryFilter() {
 	// TODO Auto-generated constructor stub
@@ -19,8 +20,26 @@ ComplementaryFilter::~ComplementaryFilter() {
 	// TODO Auto-generated destructor stub
 }
 
+void ComplementaryFilter::calculateDt() {
+	// calculate dt based on the current time and the previous measurement time
+	struct timespec currentTime;
+	clock_gettime(CLOCK_REALTIME, &currentTime);
+	long dt_nanoseconds = currentTime.tv_nsec - lastTime.tv_nsec;
+	long dt_sec = currentTime.tv_sec - lastTime.tv_sec;
+	/**
+	 * dt in seconds
+	 */
+	dt = (dt_sec * 1000000000 + dt_nanoseconds) * 1e-9;
+
+	lastTime.tv_nsec = currentTime.tv_nsec;
+	lastTime.tv_sec = currentTime.tv_sec;
+}
+
 void ComplementaryFilter::updateValue(double gyroRate,
-		double accelerometerAngle, double dt) {
+		double accelerometerAngle) {
+
+	calculateDt();
+
 	//complementary filter
 	double K = 0.49 / (0.49 + dt);
 	double gyroscopeAngle = gyroRate * dt;

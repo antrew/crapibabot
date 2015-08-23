@@ -20,9 +20,6 @@
 #include "MyMPU6050.h"
 #include "ComplementaryFilter.h"
 
-struct timespec lastTime;
-struct timespec currentTime;
-
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
@@ -74,21 +71,9 @@ void loop() {
 	// display angle in degrees from accelerometer
 	double accelerometerAngle = atan2(mpu.ay, mpu.az);
 
-	// calculate dt based on the current time and the previous measurement time
-	clock_gettime(CLOCK_REALTIME, &currentTime);
-	long dt_nanoseconds = currentTime.tv_nsec - lastTime.tv_nsec;
-	long dt_sec = currentTime.tv_sec - lastTime.tv_sec;
-	/**
-	 * dt in seconds
-	 */
-	double dt = (dt_sec * 1000000000 + dt_nanoseconds) * 1e-9;
-
-	lastTime.tv_nsec = currentTime.tv_nsec;
-	lastTime.tv_sec = currentTime.tv_sec;
-
 	double gyroscopeRate = mpu.gsx / 180 * M_PI;
 
-	complementaryFilter.updateValue(gyroscopeRate, accelerometerAngle, dt);
+	complementaryFilter.updateValue(gyroscopeRate, accelerometerAngle);
 	double angle = complementaryFilter.getAngle();
 	printf("filtered angle: %f\n", angle);
 }

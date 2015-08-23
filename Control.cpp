@@ -17,7 +17,8 @@
 #include "I2Cdev.h"
 #include "wiringPi.h"
 #include "ports.h"
-#include "MPU6050_6Axis_MotionApps20.h"
+#include "MyMPU6050.h"
+#include "ComplementaryFilter.h"
 
 int pwm_divisor = 40;
 int pwm_range = 1000;
@@ -31,12 +32,6 @@ int stepsLeft;
 int counterRight = 0;
 int previousCounterRight = 0;
 int stepsRight;
-
-struct timespec lastTime;
-struct timespec currentTime;
-
-float angle;
-float K;
 
 float Kp;
 float Ki;
@@ -63,25 +58,8 @@ int calibrationStartTime = 0;
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
 // AD0 high = 0x69
-MPU6050 mpu;
-
-
-// MPU control/status vars
-bool dmpReady = false;  // set true if DMP init was successful
-uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
-uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
-uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
-uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[64]; // FIFO storage buffer
-
-// orientation/motion vars
-Quaternion q;           // [w, x, y, z]         quaternion container
-VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
-VectorFloat gravity;    // [x, y, z]            gravity vector
-float euler[3];         // [psi, theta, phi]    Euler angle container
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+MyMPU6050 mpu;
+ComplementaryFilter complementaryFilter;
 
 
 void shutdown(void) {
@@ -122,39 +100,18 @@ void term(int signum) {
 // ================================================================
 
 void setupSensors() {
-    // initialize device
-    printf("Initializing I2C devices...\n");
-    mpu.initialize();
+	// initialize device
+	printf("Initializing I2C devices...\n");
+	mpu.initialize();
 
-    // verify connection
-    printf("Testing device connections...\n");
-    printf(mpu.testConnection() ? "MPU6050 connection successful\n" : "MPU6050 connection failed\n");
+	// verify connection
+	printf("Testing device connections...\n");
+	// TODO handle the error (stop the program with a meaningful message for the user)
+	printf(
+			mpu.testConnection() ?
+					"MPU6050 connection successful\n" :
+					"MPU6050 connection failed\n");
 
-    // load and configure the DMP
-    printf("Initializing DMP...\n");
-    devStatus = mpu.dmpInitialize();
-
-    // make sure it worked (returns 0 if so)
-    if (devStatus == 0) {
-        // turn on the DMP, now that it's ready
-        printf("Enabling DMP...\n");
-        mpu.setDMPEnabled(true);
-
-        mpuIntStatus = mpu.getIntStatus();
-
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        printf("DMP ready!\n");
-        dmpReady = true;
-
-        // get expected DMP packet size for later comparison
-        packetSize = mpu.dmpGetFIFOPacketSize();
-    } else {
-        // ERROR!
-        // 1 = initial memory load failed
-        // 2 = DMP configuration updates failed
-        // (if it's going to break, usually the code will be 1)
-        printf("DMP Initialization failed (code %d)\n", devStatus);
-    }
 }
 
 // ================================================================
@@ -213,8 +170,6 @@ void setupMotors() {
 // ================================================================
 
 void setupPIDControler() {
-	angle = 0;
-	K = 0.98;
 
 	Kp = 4.00;
 	Ki = 0.00;
@@ -224,7 +179,6 @@ void setupPIDControler() {
 	integral_error = 0;
 	last_error = 0;
 
-	clock_gettime(CLOCK_REALTIME, &lastTime);
 }
 
 
@@ -312,7 +266,7 @@ void setValue(float target, float dt){
 // ===                    CALIBRATE		                        ===
 // ================================================================
 
-void calibrate(){
+void waitBeforeCalibrate() {
 	int secUntilCalibration = 5;
 	printf("Starting calibration in %d seconds\n", secUntilCalibration);
 
@@ -324,74 +278,41 @@ void calibrate(){
 		printf("Starting calibration in %d seconds\n", secUntilCalibration);
 	}
 	printf("Calibrating for approximately 5 seconds...\n");
+}
+
+void calibrateSetPoint() {
+	struct timespec lastTime;
+	struct timespec currentTime;
 
 	int countCalibrationAngles = 0;
-	float meanCalibrationAngle = 0.0;
+	double meanCalibrationAngle = 0.0;
 	long double sumCalibrationAngle = 0.0;
 	float calibrationAngle = 0.0;
 
 	clock_gettime(CLOCK_REALTIME, &lastTime);
 	int oldTime = lastTime.tv_sec;
 
-	do{
-		// if programming failed, don't try to do anything
-		if (!dmpReady) return;
-		// get current FIFO count
-		fifoCount = mpu.getFIFOCount();
+	do {
+		mpu.readSensor();
 
-		if (fifoCount == 1024) {
-			// reset so we can continue cleanly
-			mpu.resetFIFO();
-			printf("FIFO overflow!\n");
-			clock_gettime(CLOCK_REALTIME, &currentTime);
+		// display angle in degrees from accelerometer
+		double accelerometerAngle = atan2(mpu.ay, mpu.az);
 
-		// otherwise, check for DMP data ready interrupt (this should happen frequently)
-		} else if (fifoCount >= 42) {
-			// read a packet from FIFO
-			mpu.getFIFOBytes(fifoBuffer, packetSize);
+		// display angle in degrees from accelerometer
+		printf("accelerometerAngle  %7.2f    ",
+				accelerometerAngle * 180 / M_PI);
 
-			// display quaternion values in easy matrix form: w x y z
-			mpu.dmpGetQuaternion(&q, fifoBuffer);
-			mpu.dmpGetAccel(&aa, fifoBuffer);
-			mpu.dmpGetGravity(&gravity, &q);
-			mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-			printf("areal %6d %6d %6d    ", aaReal.x, aaReal.y, aaReal.z);
-
-			// display Euler angles in degrees
-			mpu.dmpGetGravity(&gravity, &q);
-			mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-			printf("ypr  %7.2f %7.2f %7.2f    ", ypr[0] * 180/M_PI, ypr[1] * 180/M_PI, ypr[2] * 180/M_PI);
-
-			// display angle in degrees from accelerometer
-			float accelerometerAngle = atan2(aaReal.y, aaReal.z);
-			printf("accelerometerAngle  %7.2f    ", accelerometerAngle * 180/M_PI);
-
-			// calculate dt based on the current time and the previous measurement time
-			clock_gettime(CLOCK_REALTIME, &currentTime);
-			long ms = round ((currentTime.tv_nsec - lastTime.tv_nsec) / 1.0e6); //convert nanoseconds to milliseconds
-			int sec = currentTime.tv_sec - lastTime.tv_sec;
-			float dt = (float)(sec * 1000 + ms) / 1000;
-
-			printf("currentTimeSEC=%d currentTimeMS=%ld lastTimeSEC=%d lastTimeMS=%ld SEC=%d MS=%ld dt=%f\n", currentTime.tv_sec, currentTime.tv_nsec, lastTime.tv_sec, lastTime.tv_nsec, sec, ms, dt);
-
-			lastTime.tv_nsec = currentTime.tv_nsec;
-			lastTime.tv_sec = currentTime.tv_sec;
-
-			//complementary filter
-			K = (float) 0.49/(0.49 + dt);
-			calibrationAngle = K * (calibrationAngle + ypr[2] * dt) + (1 - K) * accelerometerAngle;
-
-			printf("calibrationAngle  %7.2f    ", calibrationAngle * 180/M_PI);
-			sumCalibrationAngle += calibrationAngle;
-			countCalibrationAngles++;
-		}
+		printf("calibrationAngle  %7.2f    ", accelerometerAngle * 180 / M_PI);
+		sumCalibrationAngle += accelerometerAngle;
+		countCalibrationAngles++;
 
 		clock_gettime(CLOCK_REALTIME, &currentTime);
-	}while(currentTime.tv_sec < (oldTime + 5));
+	} while (currentTime.tv_sec < (oldTime + 5));
 
 	printf("Calibration completed!\n");
 	meanCalibrationAngle = sumCalibrationAngle / countCalibrationAngles;
-	printf("meanCalibrationAngle = %f [rad] %f [deg]\n", meanCalibrationAngle, meanCalibrationAngle * 180/M_PI);
+	printf("meanCalibrationAngle = %f [rad] %f [deg]\n", meanCalibrationAngle,
+			meanCalibrationAngle * 180 / M_PI);
 	set_point = meanCalibrationAngle;
 }
 
@@ -399,81 +320,44 @@ void calibrate(){
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-void loop(){
-	 // if programming failed, don't try to do anything
-	if (!dmpReady) return;
-	// get current FIFO count
-	fifoCount = mpu.getFIFOCount();
+void loop() {
 
-	if (fifoCount == 1024) {
-		// reset so we can continue cleanly
-		mpu.resetFIFO();
-		printf("FIFO overflow!\n");
+	mpu.readSensor();
 
-	// otherwise, check for DMP data ready interrupt (this should happen frequently)
-	} else if (fifoCount >= 42) {
-		// read a packet from FIFO
-		mpu.getFIFOBytes(fifoBuffer, packetSize);
+	// display angle in degrees from accelerometer
+	double accelerometerAngle = atan2(mpu.ay, mpu.az);
 
-		// display quaternion values in easy matrix form: w x y z
-		mpu.dmpGetQuaternion(&q, fifoBuffer);
-		mpu.dmpGetAccel(&aa, fifoBuffer);
-		mpu.dmpGetGravity(&gravity, &q);
-		mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-		printf("realAccelAngle %6d %6d %6d    ", aaReal.x,aaReal.y,aaReal.z);
+	double gyroscopeRate = mpu.gsx / 180 * M_PI;
 
-		// display Euler angles in degrees
-		mpu.dmpGetGravity(&gravity, &q);
-		mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-		printf("ypr  %7.2f %7.2f %7.2f    ", ypr[0] * 180/M_PI, ypr[1] * 180/M_PI, ypr[2] * 180/M_PI);
+	complementaryFilter.updateValue(gyroscopeRate, accelerometerAngle);
+	double angle = complementaryFilter.getAngle();
+	double dt = complementaryFilter.dt;
 
-		// display angle in degrees from accelerometer
-		float accelerometerAngle = atan2(aaReal.y, aaReal.z);
-		printf("accelerometerAngle  %7.2f    ", accelerometerAngle * 180/M_PI);
+	//PID
+	float error = angle - set_point;
+	integral_error += error * dt;
+	float differential_error = (float) (error - last_error) / dt;
+	last_error = error;
 
-		// calculate dt based on the current time and the previous measurement time
-		clock_gettime(CLOCK_REALTIME, &currentTime);
-		long ms = round ((currentTime.tv_nsec - lastTime.tv_nsec) / 1.0e6); //convert nanoseconds to milliseconds
-		int sec = currentTime.tv_sec - lastTime.tv_sec;
-		float dt = (float)(sec * 1000 + ms) / 1000;
+	printf("angle=%f error=%f dt=%f integral_error=%f differential_error=%f\n",
+			angle, error, dt, integral_error, differential_error);
 
-        printf("currentTimeSEC=%d currentTimeMS=%ld lastTimeSEC=%d lastTimeMS=%ld SEC=%d MS=%ld dt=%f\n", currentTime.tv_sec, currentTime.tv_nsec, lastTime.tv_sec, lastTime.tv_nsec, sec, ms, dt);
+	float up = Kp * error;
+	float ui = Ki * integral_error;
+	float ud = Kd * differential_error;
+	float u = up + ui + ud;
 
-        lastTime.tv_nsec = currentTime.tv_nsec;
-        lastTime.tv_sec = currentTime.tv_sec;
+	printf("up=%f ui=%f ud=%f u=%f\n", up, ui, ud, u);
 
-        //complementary filter
-        K = (float) 0.49/(0.49 + dt);
-        angle = K * (angle + ypr[2] * dt) + (1 - K) * accelerometerAngle;
-        printf("K = %f filtered angle %f [rad]	 %7.2f [deg]    ", K, angle, angle * 180/M_PI);
+	setValue(u, dt);
 
-		printf("\n");
+	stepsLeft = counterLeft - previousCounterLeft;
+	previousCounterLeft = counterLeft;
 
-		//PID
-		float error = angle - set_point;
-		integral_error += error * dt;
-		float differential_error = (float) (error - last_error) / dt;
-		last_error = error;
+	stepsRight = counterRight - previousCounterRight;
+	previousCounterRight = counterRight;
 
-		printf("angle=%f error=%f dt=%f integral_error=%f differential_error=%f\n", angle, error, dt, integral_error, differential_error);
-
-		float up = Kp * error;
-		float ui = Ki * integral_error;
-		float ud = Kd * differential_error;
-		float u = up + ui + ud;
-
-		printf("up=%f ui=%f ud=%f u=%f\n", up, ui, ud, u);
-
-		setValue(u, dt);
-
-		stepsLeft = counterLeft - previousCounterLeft;
-		previousCounterLeft = counterLeft;
-
-		stepsRight = counterRight - previousCounterRight;
-		previousCounterRight = counterRight;
-
-		printf("\n\n");
-	}
+	printf("\n\n");
 }
 
 int main() {
@@ -481,7 +365,9 @@ int main() {
 
 	usleep(100000);
 
-	calibrate();
+	waitBeforeCalibrate();
+	mpu.calibrateGyroscopes();
+	calibrateSetPoint();
 	while (true) {
 		loop();
 

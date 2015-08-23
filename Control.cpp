@@ -171,9 +171,9 @@ void setupMotors() {
 
 void setupPIDControler() {
 
-	Kp = 4.00;
-	Ki = 0.00;
-	Kd = 0.00;
+	Kp = 8.00;
+	Ki = 1.00;
+	Kd = 0.20;
 	set_point = 0.0;//will be properly set after calibration
 
 	integral_error = 0;
@@ -305,6 +305,7 @@ void calibrateSetPoint() {
 		printf("calibrationAngle  %7.2f    ", accelerometerAngle * 180 / M_PI);
 		sumCalibrationAngle += accelerometerAngle;
 		countCalibrationAngles++;
+		printf("\n");
 
 		clock_gettime(CLOCK_REALTIME, &currentTime);
 	} while (currentTime.tv_sec < (oldTime + 5));

@@ -23,7 +23,6 @@
 struct timespec lastTime;
 struct timespec currentTime;
 
-
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
@@ -70,22 +69,10 @@ void setup() {
 
 void loop() {
 
-	int16_t ax, ay, az, gx, gy, gz;
-
-	mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-
-	double G_RATE = 1.0 / (131);
-
-	double gsx = gx * G_RATE;
-	double gsy = gy * G_RATE;
-	double gsz = gz * G_RATE;
-
-	printf("accelerometer: %5d, %5d, %5d ; %5d, %5d, %5d\n", ax, ay, az);
-	printf("gyroscope:     %5d, %5d, %5d ; %5f, %5f, %5f\n", gx, gy, gz, gsx,
-			gsy, gsz);
+	mpu.readSensor();
 
 	// display angle in degrees from accelerometer
-	double accelerometerAngle = atan2(ay, az);
+	double accelerometerAngle = atan2(mpu.ay, mpu.az);
 
 	// calculate dt based on the current time and the previous measurement time
 	clock_gettime(CLOCK_REALTIME, &currentTime);
@@ -99,7 +86,8 @@ void loop() {
 	lastTime.tv_nsec = currentTime.tv_nsec;
 	lastTime.tv_sec = currentTime.tv_sec;
 
-	double gyroscopeRate = gsx / 180 * M_PI;
+	double gyroscopeRate = mpu.gsx / 180 * M_PI;
+
 	complementaryFilter.updateValue(gyroscopeRate, accelerometerAngle, dt);
 	double angle = complementaryFilter.getAngle();
 	printf("filtered angle: %f\n", angle);

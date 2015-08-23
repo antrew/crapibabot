@@ -15,6 +15,11 @@ public:
 	MyMPU6050();
 	virtual ~MyMPU6050();
 	void calibrateGyroscopes();
+	void readSensor();
+	int16_t ax, ay, az, gx, gy, gz;
+	double gsx, gsy, gsz;
+private:
+	void correct_offset(int16_t gyro_value, int16_t * gyro_offset);
 };
 
 #endif /* MYMPU6050_H_ */

@@ -27,11 +27,11 @@
 MyMPU6050 mpu;
 ComplementaryFilter complementaryFilter;
 
-void shutdown(void) {
+void shutdownMotors(void) {
 }
 
 void term(int signum) {
-	shutdown();
+	shutdownMotors();
 	exit(1);
 }
 
@@ -86,7 +86,7 @@ int main() {
 	while (true) {
 		loop();
 	}
-	shutdown();
+	shutdownMotors();
 
 	return 0;
 }

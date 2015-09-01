@@ -11,25 +11,25 @@
 //		# MOTOR DRIVER PORTS
 //
 //		# enable A of the H-bridge
-int port_motor_left_pwm = 18;
-//
-//		# input 1 of the H-bridge
-int port_motor_left_forward = 24;
-//
-//		# input 2 of the H-bridge
-int port_motor_left_backward = 23;
-//
-//		# enable B of the H-bridge
-int port_motor_right_pwm = 13;
-//
-//		# input 3 of the H-bridge
-int port_motor_right_forward = 12;
-//
-//		# input 4 of the H-bridge
-int port_motor_right_backward = 25;
-//
-int port_encoder_left_a = 19;
-int port_encoder_left_b = 26;
-//
-int port_encoder_right_a=17;
-int port_encoder_right_b=27;
+#define PORT_NUMBER_MOTOR_LEFT_PWM 18
+
+//input 1 of the H-bridge
+#define PORT_NUMBER_MOTOR_LEFT_FORWARD 24
+
+//input 2 of the H-bridge
+#define PORT_NUMBER_MOTOR_LEFT_BACKWARD 23
+
+//enable B of the H-bridge
+#define PORT_NUMBER_MOTOR_RIGHT_PWM 13
+
+//input 3 of the H-bridge
+#define PORT_NUMBER_MOTOR_RIGHT_FORWARD 12
+
+//input 4 of the H-bridge
+#define PORT_NUMBER_MOTOR_RIGHT_BACKWARD 25
+
+#define PORT_NUMBER_ENCODER_LEFT_A 19
+#define PORT_NUMBER_ENCODER_LEFT_B 26
+
+#define PORT_NUMBER_ENCODER_RIGHT_A 27
+#define PORT_NUMBER_ENCODER_RIGHT_B 17

@@ -12,12 +12,9 @@
 #include <time.h>
 
 ComplementaryFilter::ComplementaryFilter() {
-	// TODO Auto-generated constructor stub
-
 }
 
 ComplementaryFilter::~ComplementaryFilter() {
-	// TODO Auto-generated destructor stub
 }
 
 void ComplementaryFilter::calculateDt() {

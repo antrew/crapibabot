@@ -1,5 +1,5 @@
 HDRS = helper_3dmath.h I2Cdev.h MPU6050_6Axis_MotionApps20.h MPU6050.h
-CMN_OBJS = I2Cdev.o MPU6050.o MyMPU6050.o ComplementaryFilter.o
+CMN_OBJS = I2Cdev.o MPU6050.o MyMPU6050.o ComplementaryFilter.o Motor.o Encoder.o
 MY_OBJS = Control.o
 
 all: control sensor

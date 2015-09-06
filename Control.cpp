@@ -63,6 +63,9 @@ void shutdownMotors(void) {
 	delete motorRight;
 	delete encoderLeft;
 	delete encoderRight;
+
+	// disable pull-up on the button
+	pullUpDnControl(PORT_NUMBER_BUTTON, PUD_OFF);
 }
 
 void interruptHandlerEncoderLeft(void) {
@@ -104,8 +107,6 @@ void setupSensors() {
 // ================================================================
 
 void setupMotors() {
-	wiringPiSetupGpio();
-
 	// SIGTERM handler
 	struct sigaction action;
 	memset(&action, 0, sizeof(struct sigaction));
@@ -158,6 +159,12 @@ void setupPIDControler() {
 }
 
 void setup() {
+	wiringPiSetupGpio();
+
+	// setup button
+	pinMode(PORT_NUMBER_BUTTON, INPUT);
+	pullUpDnControl(PORT_NUMBER_BUTTON, PUD_UP);
+
 	setupSensors();
 	setupMotors();
 	setupPIDControler();
@@ -168,6 +175,16 @@ void setValueToMotors(float u) {
 	motorRight->setValue(u);
 }
 
+void waitButtonPressed() {
+	cout<<"Press the button on the breadboard..."<<endl;
+	while (true) {
+		int button_value = digitalRead(PORT_NUMBER_BUTTON);
+		if (!button_value) {
+			return;
+		}
+		usleep(100000);
+	}
+}
 // ================================================================
 // ===                    CALIBRATE		                        ===
 // ================================================================
@@ -276,12 +293,20 @@ int main() {
 
 	usleep(100000);
 
+	waitButtonPressed();
+
 	waitBeforeCalibrate();
 	mpu.calibrateGyroscopes();
 	calibrateSetPoint();
 	while (true) {
 		loop();
 
+		// if the button is pressed, stop the main loop and exit
+		int button_value = digitalRead(PORT_NUMBER_BUTTON);
+		if (!button_value) {
+			cout<<"Exiting because the button on the breadboard was pressed"<<endl;
+			break;
+		}
 	}
 	shutdownMotors();
 

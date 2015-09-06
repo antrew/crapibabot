@@ -40,13 +40,6 @@ float integral_error;
 float last_error;
 
 
-int countCalibrationAngles = 0;
-float meanCalibrationAngle = 0.0;
-long double sumCalibrationAngle = 0.0;
-float calibrationAngle = 0.0;
-int calibrationCompleted = 0;
-int calibrationStartTime = 0;
-
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
@@ -246,7 +239,7 @@ void calibrateSetPoint() {
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-void loop() {
+void loop_iteration() {
 
 	mpu.readSensor();
 
@@ -288,6 +281,20 @@ void loop() {
 	printf("\n\n");
 }
 
+void loop() {
+	// MAIN LOOP
+	while (true) {
+		loop_iteration();
+
+		// if the button is pressed, stop the main loop and exit
+		int button_value = digitalRead(PORT_NUMBER_BUTTON);
+		if (!button_value) {
+			cout<<"Exiting because the button on the breadboard was pressed"<<endl;
+			break;
+		}
+	}
+}
+
 int main() {
 	setup();
 
@@ -297,17 +304,26 @@ int main() {
 
 	waitBeforeCalibrate();
 	mpu.calibrateGyroscopes();
-	calibrateSetPoint();
+
 	while (true) {
+		calibrateSetPoint();
+
+		encoderLeft->resetCounters();
+		encoderRight->resetCounters();
+
 		loop();
 
-		// if the button is pressed, stop the main loop and exit
-		int button_value = digitalRead(PORT_NUMBER_BUTTON);
-		if (!button_value) {
-			cout<<"Exiting because the button on the breadboard was pressed"<<endl;
-			break;
-		}
+		// stop the motors
+		motorLeft->setValue(0);
+		motorRight->setValue(0);
+		// reset the error
+		last_error = 0;
+		integral_error = 0;
+
+		usleep(1000000);
+		waitButtonPressed();
 	}
+
 	shutdownMotors();
 
 	return 0;

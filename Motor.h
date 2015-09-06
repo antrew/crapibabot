@@ -16,9 +16,9 @@ class Motor {
 public:
 	Motor(string name, int pwmPort, int backwardPort, int forwardPort, int pwmRange);
 	void setValue(float target);
-	void setPower(float powerPercent);
 	virtual ~Motor();
 private:
+	void setPower(float powerPercent);
 	string name;
 	int pwmPort;
 	int backwardPort;

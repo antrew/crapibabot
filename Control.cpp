@@ -6,6 +6,7 @@
  */
 
 #include <stdio.h>
+#include <iostream>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -19,33 +20,25 @@
 #include "ports.h"
 #include "MyMPU6050.h"
 #include "ComplementaryFilter.h"
+#include "Motor.h"
+#include "Encoder.h"
 
-int pwm_divisor = 40;
-int pwm_range = 1000;
+const int pwmDivisor = 40;
+const int pwmRange = 1000;
 
-int percentage = 0;
-
-int counterLeft = 0;
-int previousCounterLeft = 0;
-int stepsLeft;
-
-int counterRight = 0;
-int previousCounterRight = 0;
-int stepsRight;
+const int ticksPerRevolution = 12;
+const float wheelDiameter = 8.6;
+const float gearRatio = 9.7;
 
 float Kp;
 float Ki;
 float Kd;
 float set_point;
+float Kangle;
 
 float integral_error;
 float last_error;
 
-int backward_value;
-int forward_value;
-
-float mapping_u[3] = {0, 1, 100};
-int mapping_pwm[3] = {0, 13, 100};
 
 int countCalibrationAngles = 0;
 float meanCalibrationAngle = 0.0;
@@ -60,38 +53,30 @@ int calibrationStartTime = 0;
 // AD0 high = 0x69
 MyMPU6050 mpu;
 ComplementaryFilter complementaryFilter;
+Motor* motorLeft;
+Motor* motorRight;
+Encoder* encoderLeft;
+Encoder* encoderRight;
 
-
-void shutdown(void) {
-	pwmWrite(port_motor_left_pwm, 0);
-	digitalWrite(port_motor_left_backward, LOW);
-	digitalWrite(port_motor_left_forward, LOW);
-
-	pwmWrite(port_motor_right_pwm, 0);
-	digitalWrite(port_motor_right_backward, LOW);
-	digitalWrite(port_motor_right_forward, LOW);
+void shutdownMotors(void) {
+	delete motorLeft;
+	delete motorRight;
+	delete encoderLeft;
+	delete encoderRight;
 }
 
-void interruptHandlerLeft(void) {
-	int otherPinValue = digitalRead(port_encoder_left_b);
-	if (otherPinValue) {
-		counterLeft++;
-	} else {
-		counterLeft--;
-	}
+void interruptHandlerEncoderLeft(void) {
+	int otherPinValue = digitalRead(PORT_NUMBER_ENCODER_LEFT_B);
+	encoderLeft->updateCounters(otherPinValue);
 }
 
-void interruptHandlerRight(void) {
-	int otherPinValue = digitalRead(port_encoder_right_b);
-	if (otherPinValue) {
-		counterRight--;
-	} else {
-		counterRight++;
-	}
+void interruptHandlerEncoderRight(void) {
+	int otherPinValue = digitalRead(PORT_NUMBER_ENCODER_RIGHT_B);
+	encoderRight->updateCounters(otherPinValue);
 }
 
 void term(int signum) {
-	shutdown();
+	shutdownMotors();
 	exit(1);
 }
 
@@ -128,41 +113,32 @@ void setupMotors() {
 	sigaction(SIGINT, &action, NULL);
 
 	//encoder LEFT
-	pinMode(port_encoder_left_a, INPUT);
-	pinMode(port_encoder_left_b, INPUT);
+	encoderLeft = new Encoder("encoder left", PORT_NUMBER_ENCODER_LEFT_A, PORT_NUMBER_ENCODER_LEFT_B, ticksPerRevolution, wheelDiameter, gearRatio);
 
 	//encoder RIGHT
-	pinMode(port_encoder_right_a, INPUT);
-	pinMode(port_encoder_right_b, INPUT);
+	encoderRight = new Encoder("encoder right", PORT_NUMBER_ENCODER_RIGHT_A, PORT_NUMBER_ENCODER_RIGHT_B, ticksPerRevolution, wheelDiameter, gearRatio);
 
 	//motor LEFT
-	pinMode(port_motor_left_pwm, PWM_OUTPUT);
-	pinMode(port_motor_left_backward, OUTPUT);
-	pinMode(port_motor_left_forward, OUTPUT);
-
-	digitalWrite(port_motor_left_backward, LOW);
-	digitalWrite(port_motor_left_forward, LOW);
+	motorLeft = new Motor("motor left", PORT_NUMBER_MOTOR_LEFT_PWM,
+	PORT_NUMBER_MOTOR_LEFT_BACKWARD, PORT_NUMBER_MOTOR_LEFT_FORWARD, pwmRange);
 
 	//motor RIGHT
-	pinMode(port_motor_right_pwm, PWM_OUTPUT);
-	pinMode(port_motor_right_backward, OUTPUT);
-	pinMode(port_motor_right_forward, OUTPUT);
+	motorRight = new Motor("motor right", PORT_NUMBER_MOTOR_RIGHT_PWM,
+	PORT_NUMBER_MOTOR_RIGHT_BACKWARD, PORT_NUMBER_MOTOR_RIGHT_FORWARD, pwmRange);
 
-	digitalWrite(port_motor_right_backward, LOW);
-	digitalWrite(port_motor_right_forward, LOW);
-
-	pwmSetMode(PWM_MODE_MS);
-	pwmSetRange(pwm_range);
-	pwmSetClock(pwm_divisor);
+	pwmSetMode (PWM_MODE_MS);
+	pwmSetRange(pwmRange);
+	pwmSetClock(pwmDivisor);
 
 	// pwmFrequency in Hz = 19.2 MHz / pwmClock / pwmRange
-	int frequency = 19200000 / pwm_divisor / pwm_range;
+	int frequency = 19200000 / pwmDivisor / pwmRange;
 
-	printf("frequency=%d Hz (divisor=%d, range=%d)\n", frequency, pwm_divisor,
-			pwm_range);
+	printf("frequency=%d Hz (divisor=%d, range=%d)\n", frequency, pwmDivisor,
+			pwmRange);
 
-	wiringPiISR(port_encoder_left_a, INT_EDGE_RISING, &interruptHandlerLeft);
-	wiringPiISR(port_encoder_right_a, INT_EDGE_RISING, &interruptHandlerRight);
+	//set-up interrupt service routine for detecting the rotation of the motor by the encoder
+	wiringPiISR(encoderLeft->getPortA(), INT_EDGE_RISING, &interruptHandlerEncoderLeft);
+	wiringPiISR(encoderRight->getPortA(), INT_EDGE_RISING, &interruptHandlerEncoderRight);
 }
 
 // ================================================================
@@ -172,95 +148,25 @@ void setupMotors() {
 void setupPIDControler() {
 
 	Kp = 8.00;
-	Ki = 1.00;
+	Ki = 40.00;
 	Kd = 0.20;
-	set_point = 0.0;//will be properly set after calibration
+	Kangle = 0.0001;
+	set_point = 0.0; //will be properly set after calibration
 
 	integral_error = 0;
 	last_error = 0;
-
 }
 
-
-void setup(){
+void setup() {
 	setupSensors();
 	setupMotors();
 	setupPIDControler();
 }
 
-void setValue(float target, float dt){
-	int local_backward_value;
-	int local_forward_value;
-
-	//limit the target value to the range -1 .. 1
-	if (target > 1) target = 1;
-	if (target < -1) target = -1;
-
-	//set direction
-	if (target > 0){
-		//forward_value
-		local_backward_value = LOW;
-		local_forward_value = HIGH;
-	}
-	else if (target < 0){
-		//backward_value
-		local_backward_value = HIGH;
-		local_forward_value = LOW;
-	}
-	else{
-		local_backward_value = LOW;
-		local_forward_value = LOW;
-	}
-
-	if (backward_value != local_backward_value){
-		digitalWrite(port_motor_left_backward, local_backward_value);
-	}
-	if (forward_value != local_forward_value){
-		digitalWrite(port_motor_left_forward, local_forward_value);
-	}
-
-	if (backward_value != local_backward_value){
-		digitalWrite(port_motor_right_backward, local_backward_value);
-	}
-	if (forward_value != local_forward_value){
-		digitalWrite(port_motor_right_forward, local_forward_value);
-	}
-
-	backward_value = local_backward_value;
-	forward_value = local_forward_value;
-
-	//set power
-	if (target < 0) target = -target;
-
-	//find interpolation range
-	int idx;
-	for(idx=0; idx<3; idx++){
-		if(mapping_u[idx] > target*100.0){
-			//found
-			break;
-		}
-	}
-
-	if(idx<=0) idx = 1;
-	if(idx>2){
-		idx = 2;
-	}
-
-	// interpolate
-	float u1 = mapping_u[idx - 1];
-	float u2 = mapping_u[idx];
-	float p1 = mapping_pwm[idx - 1];
-	float p2 = mapping_pwm[idx];
-	float power_percent = p1 + (float) (target * 100.0 - u1) * (float) ((p2 - p1) / (u2 - u1));
-
-	printf("idx= %d: target=%f power_percent=%f\n", idx, target, power_percent);
-
-	//scale to pwm_range
-	int power = pwm_range * (power_percent / 100);
-	pwmWrite(port_motor_left_pwm, power);
-	pwmWrite(port_motor_right_pwm, power);
+void setValueToMotors(float u) {
+	motorLeft->setValue(u);
+	motorRight->setValue(u);
 }
-
 
 // ================================================================
 // ===                    CALIBRATE		                        ===
@@ -270,10 +176,12 @@ void waitBeforeCalibrate() {
 	int secUntilCalibration = 5;
 	printf("Starting calibration in %d seconds\n", secUntilCalibration);
 
-	while(secUntilCalibration > 0){
+	while (secUntilCalibration > 0) {
 		//sleep for 1 second
 		//usleep(1000000);
-		for(int i=0; i<1; i++){ usleep(1000000);}
+		for (int i = 0; i < 1; i++) {
+			usleep(1000000);
+		}
 		secUntilCalibration--;
 		printf("Starting calibration in %d seconds\n", secUntilCalibration);
 	}
@@ -334,14 +242,20 @@ void loop() {
 	double angle = complementaryFilter.getAngle();
 	double dt = complementaryFilter.dt;
 
+	long encoderLeftCounter = encoderLeft->getCounter();
+	long encoderRightCounter = encoderRight->getCounter();
+	long encoodersCounterAverage = (encoderLeftCounter + encoderRightCounter)/2;
+	float setPointAngleOffset = (float) (Kangle*encoodersCounterAverage);
+	cout<<"encoderLeftCounter="<<encoderLeftCounter<<"\t encoderRightCounter="<<encoderRightCounter<<"\t encoodersCounterAverage="<<encoodersCounterAverage<<"\t setPointAngleOffset="<<setPointAngleOffset<<endl;
+
 	//PID
-	float error = angle - set_point;
+	float error = angle - (set_point - setPointAngleOffset);
 	integral_error += error * dt;
 	float differential_error = (float) (error - last_error) / dt;
 	last_error = error;
 
-	printf("angle=%f error=%f dt=%f integral_error=%f differential_error=%f\n",
-			angle, error, dt, integral_error, differential_error);
+	printf("set_point=%f [rad] set_point=%f [deg] setPointAngleOffset=%f error=%f dt=%f integral_error=%f differential_error=%f\n",
+			set_point, set_point * 180 / M_PI, setPointAngleOffset, error, dt, integral_error, differential_error);
 
 	float up = Kp * error;
 	float ui = Ki * integral_error;
@@ -350,13 +264,9 @@ void loop() {
 
 	printf("up=%f ui=%f ud=%f u=%f\n", up, ui, ud, u);
 
-	setValue(u, dt);
+	setValueToMotors(u);
 
-	stepsLeft = counterLeft - previousCounterLeft;
-	previousCounterLeft = counterLeft;
-
-	stepsRight = counterRight - previousCounterRight;
-	previousCounterRight = counterRight;
+	printf("countsEncoderLeft = %ld\t stepsEncoderLeft = %ld\t distanceEncoderLeft = %ld [cm]\t countsEncoderRight = %ld\t stepsEncoderRight = %ld\t distanceEncoderRight = %ld [cm]\t", encoderLeft->getCounter(), encoderLeft->getSteps(), encoderLeft->getDistance(), encoderRight->getCounter(), encoderRight->getSteps(), encoderRight->getDistance());
 
 	printf("\n\n");
 }
@@ -372,9 +282,8 @@ int main() {
 	while (true) {
 		loop();
 
-
 	}
-	shutdown();
+	shutdownMotors();
 
 	return 0;
 }
